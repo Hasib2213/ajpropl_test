@@ -1,0 +1,85 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║                    ResaleAI — .gitignore                         ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+# ── Environment & Secrets (NEVER push these!) ─────────────────────
+.env
+.env.local
+.env.production
+.env.staging
+*.pem
+*.key
+secrets/
+
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ── Virtual Environment ───────────────────────────────────────────
+venv/
+env/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ── FAISS Index & Data ────────────────────────────────────────────
+data/
+*.bin
+*.pkl
+*.faiss
+
+# ── Uploaded / Generated Images (stored in R2, not git) ──────────
+uploads/
+outputs/
+temp/
+tmp/
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+
+# ── Logs ──────────────────────────────────────────────────────────
+*.log
+logs/
+log/
+
+# ── IDE / Editor ──────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Testing ───────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+coverage.xml
+*.cover
+
+# ── Build / Distribution ──────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+
+# ── Docker ────────────────────────────────────────────────────────
+docker-compose.override.yml
+
+# ── Celery ────────────────────────────────────────────────────────
+celerybeat-schedule
+celerybeat.pid
+
+# ── Jupyter Notebooks ─────────────────────────────────────────────
+.ipynb_checkpoints
+*.ipynb

@@ -1,0 +1,39 @@
+# ── Core ──────────────────────────────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+pydantic
+pydantic-settings
+
+# ── Database ───────────────────────────────────────────────────────────────────
+motor
+pymongo
+
+# ── AI / Gemini ────────────────────────────────────────────────────────────────
+google-generativeai
+
+# ── Image Processing ──────────────────────────────────────────────────────────
+Pillow
+httpx
+aiohttp
+aiofiles
+requests
+numpy
+opencv-python-headless
+
+# ── Replicate (Virtual Try-On / Mannequin / Model) ────────────────────────────
+replicate
+huggingface_hub
+
+# ── Storage (Cloudflare R2) ───────────────────────────────────────────────────
+boto3
+
+# ── Task Queue ────────────────────────────────────────────────────────────────
+celery
+redis
+
+# ── Utils ─────────────────────────────────────────────────────────────────────
+python-jose
+passlib[bcrypt]
+uuid

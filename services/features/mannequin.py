@@ -80,32 +80,25 @@ class MannequinService:
         return await self._download_all(output, num_samples)
 
     async def _generate_hf_ghost(self, background_removed_url: str, num_samples: int) -> List[bytes]:
+        """
+        Ghost mannequin via HuggingFace.
+        Note: IDM-VTON is for people/models, not suitable for ghost mannequin.
+        For now, returns original image. Ghost mannequin needs specialized models.
+        """
         result: List[bytes] = []
         
-        # Ghost mannequin effect instruction
-        instruction = (
-            "create a professional ghost mannequin effect from this clothing. "
-            "make the garment appear 3D shaped like it's on an invisible mannequin. "
-            "keep the exact same color, print and shape. white background. studio lighting."
-        )
+        print("ℹ️ Ghost mannequin not yet supported via Gradio (IDM-VTON is for models only)")
+        print("📦 Returning original clothing image as fallback")
         
         original = await self._download(background_removed_url)
         if not original:
             return []
         
+        # Return original image for each sample
         for i in range(max(1, num_samples)):
-            try:
-                # Try instruction-based mannequin generation
-                img = await self._hf_instruct_edit(background_removed_url, original, instruction)
-                if img:
-                    result.append(img)
-                else:
-                    result.append(original)
-            except Exception as e:
-                print(f"⚠️ Mannequin ghost attempt {i+1} failed, using fallback: {e}")
-                result.append(original)
+            result.append(original)
         
-        return result if result else [original]
+        return result
 
     async def generate_on_mannequin(
         self,
@@ -117,29 +110,19 @@ class MannequinService:
         Looks like real product photography on store mannequin.
         """
         if self.ai_provider == "HUGGINGFACE" and self.hf_token:
-            result: List[bytes] = []
-            instruction = (
-                "place this clothing on a white plastic mannequin. "
-                "keep the exact same color, print and shape. professional e-commerce photo. "
-                "studio lighting. white background."
-            )
+            print("ℹ️ Visible mannequin not yet supported via Gradio (IDM-VTON is for models only)")
+            print("📦 Returning original clothing image as fallback")
             
+            result: List[bytes] = []
             original = await self._download(background_removed_url)
             if not original:
                 return []
             
+            # Return original image for each sample
             for i in range(max(1, num_samples)):
-                try:
-                    img = await self._hf_instruct_edit(background_removed_url, original, instruction)
-                    if img:
-                        result.append(img)
-                    else:
-                        result.append(original)
-                except Exception as e:
-                    print(f"⚠️ Mannequin on-model attempt {i+1} failed, using fallback: {e}")
-                    result.append(original)
+                result.append(original)
             
-            return result if result else [original]
+            return result
 
         output = replicate.run(
             IMG2IMG_MODEL,

@@ -101,28 +101,23 @@ class ModelService:
     async def _generate_hf_on_model(self, clothing_image_url: str, garment_description: str, num_samples: int) -> List[bytes]:
         results: List[bytes] = []
         
-        # Generate model wearing the input clothing
-        instruction = (
-            f"transform this {garment_description} into a realistic fashion model photo. "
-            "keep the exact same clothing color, pattern and design. professional photography. "
-            "studio lighting. white background. full body shot. beautiful model."
-        )
-        
         original = await self._download(clothing_image_url)
         if not original:
             return []
         
+        # Use Gradio Client for IDM-VTON model generation
         for i in range(max(1, num_samples)):
             try:
-                # Try instruction-based model generation
-                img = await self._hf_instruct_edit(clothing_image_url, original, instruction)
+                print(f"🚀 Attempting model generation via Gradio Client (try {i+1}/{num_samples})...")
+                img = await self._hf_gradio_vton(original, garment_description)
                 if img:
+                    print(f"✅ Model generation succeeded!")
                     results.append(img)
                 else:
-                    # Fallback to original
+                    print(f"⚠️ Model generation returned None, using original")
                     results.append(original)
             except Exception as e:
-                print(f"⚠️ Model generation attempt {i+1} failed, using fallback: {e}")
+                print(f"❌ Model generation attempt {i+1} failed: {str(e)[:150]}")
                 results.append(original)
         
         return results if results else [original]
@@ -198,6 +193,57 @@ class ModelService:
             r = await client.get(url)
             r.raise_for_status()
             return r.content
+
+    async def _hf_gradio_vton(self, garment_bytes: bytes, garment_description: str) -> Optional[bytes]:
+        """Use IDM-VTON via Gradio Client for model generation"""
+        try:
+            from gradio_client import Client, handle_file
+            import tempfile
+            import os
+            import asyncio
+
+            # Save garment bytes to temp file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as garment_file:
+                garment_file.write(garment_bytes)
+                garment_path = garment_file.name
+            
+            # Default human model image URL
+            human_url = "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/example/human/00008_00.jpg"
+            
+            try:
+                # Initialize Gradio client
+                client = Client("yisol/IDM-VTON")
+                
+                # Run prediction in executor to avoid blocking
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    None,
+                    lambda: client.predict(
+                        dict={"background": human_url, "layers": [], "composite": None},
+                        garm_img=handle_file(garment_path),
+                        garment_des=garment_description,
+                        is_checked=True,
+                        is_checked_crop=False,
+                        denoise_steps=30,
+                        seed=42,
+                        api_name="/tryon"
+                    )
+                )
+                
+                # Result is a tuple, first element is output image path
+                if result and len(result) > 0:
+                    output_path = result[0]
+                    with open(output_path, "rb") as f:
+                        return f.read()
+                        
+            finally:
+                # Cleanup temp file
+                if os.path.exists(garment_path):
+                    os.unlink(garment_path)
+                    
+        except Exception as e:
+            print(f"❌ Gradio Model VTON error: {str(e)[:200]}")
+        return None
 
     async def _hf_instruct_edit(self, image_url: str, image_bytes: bytes, instruction: str) -> Optional[bytes]:
         """Use text-to-image generation with context from input image"""

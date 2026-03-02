@@ -84,28 +84,23 @@ class VirtualTryOnService:
     async def _generate_hf(self, clothing_image_url: str, num_samples: int) -> List[bytes]:
         result_bytes: List[bytes] = []
         
-        # Instruction-based image editing for virtual try-on
-        instruction = (
-            "put a realistic fashion model wearing this exact clothing item. "
-            "keep the same color, pattern and design. professional e-commerce photo. "
-            "studio lighting. white background. full body shot."
-        )
-        
         original = await self._download(clothing_image_url)
         if not original:
             return []
         
+        # Use Gradio Client for IDM-VTON (free and works!)
         for i in range(max(1, num_samples)):
             try:
-                # Try instruction-based editing
-                img = await self._hf_instruct_edit(clothing_image_url, original, instruction)
+                print(f"🚀 Attempting IDM-VTON via Gradio Client (try {i+1}/{num_samples})...")
+                img = await self._hf_gradio_vton(original)
                 if img:
+                    print(f"✅ Virtual try-on succeeded!")
                     result_bytes.append(img)
                 else:
-                    # Fallback to original if generation fails
+                    print(f"⚠️ Try-on returned None, using original")
                     result_bytes.append(original)
             except Exception as e:
-                print(f"⚠️ Virtual try-on attempt {i+1} failed, using fallback: {e}")
+                print(f"❌ Virtual try-on attempt {i+1} failed: {str(e)[:150]}")
                 result_bytes.append(original)
         
         return result_bytes if result_bytes else [original]
@@ -181,6 +176,57 @@ class VirtualTryOnService:
             r = await client.get(url)
             r.raise_for_status()
             return r.content
+
+    async def _hf_gradio_vton(self, garment_bytes: bytes) -> Optional[bytes]:
+        """Use IDM-VTON via Gradio Client (yisol/IDM-VTON space)"""
+        try:
+            from gradio_client import Client, handle_file
+            import tempfile
+            import os
+            import asyncio
+
+            # Save garment bytes to temp file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as garment_file:
+                garment_file.write(garment_bytes)
+                garment_path = garment_file.name
+            
+            # Default human model image URL
+            human_url = "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/example/human/00008_00.jpg"
+            
+            try:
+                # Initialize Gradio client
+                client = Client("yisol/IDM-VTON")
+                
+                # Run prediction in executor to avoid blocking
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    None,
+                    lambda: client.predict(
+                        dict={"background": human_url, "layers": [], "composite": None},
+                        garm_img=handle_file(garment_path),
+                        garment_des="fashion clothing item",
+                        is_checked=True,
+                        is_checked_crop=False,
+                        denoise_steps=30,
+                        seed=42,
+                        api_name="/tryon"
+                    )
+                )
+                
+                # Result is a tuple, first element is output image path
+                if result and len(result) > 0:
+                    output_path = result[0]
+                    with open(output_path, "rb") as f:
+                        return f.read()
+                        
+            finally:
+                # Cleanup temp file
+                if os.path.exists(garment_path):
+                    os.unlink(garment_path)
+                    
+        except Exception as e:
+            print(f"❌ Gradio VTON error: {str(e)[:200]}")
+        return None
 
     async def _hf_instruct_edit(self, image_url: str, image_bytes: bytes, instruction: str) -> Optional[bytes]:
         """Use text-to-image generation with context from input image"""

@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+import os
 
 from config.database import connect_db, close_db
 from config.settings import settings
@@ -50,7 +52,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static files
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
 app.include_router(products_router, prefix="/api/v1")
+
+
+@app.get("/upload", tags=["Upload"])
+async def upload_page():
+    """
+    Serve the multi-image upload interface.
+    Navigate to http://localhost:8000/upload to use the upload form.
+    """
+    from fastapi.responses import FileResponse
+    return FileResponse(os.path.join(static_dir, "upload.html"))
 
 
 @app.get("/", tags=["Health"])

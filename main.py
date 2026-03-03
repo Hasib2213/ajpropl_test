@@ -39,6 +39,8 @@ Upload a garment photo → AI handles the rest.
 - Product Details & Metafields
 - Tags, SKU, Variants
 - Storage & Automation info
+-features:physical_dimensions,background_removal,ai_virtual_tryon,image_diagram,mannequin,model
+-feature_json:[{"features": ["background_removal", "model"]}, {"features": ["physical_dimensions", "virtual_tryon"]}]
     """,
     version=settings.APP_VERSION,
     lifespan=lifespan,

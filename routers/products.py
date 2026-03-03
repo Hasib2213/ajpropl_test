@@ -24,7 +24,7 @@ ai_pipeline = AIPipeline()
 # POST /api/v1/generate
 # Figma → "Generate" button - Upload image & select AI features
 # ─────────────────────────────────────────────────────────────────────────────
-@router.post("/generate", response_model=ProductResponse)
+#@router.post("/generate", response_model=ProductResponse)
 async def generate(
     background_tasks: BackgroundTasks,
     seller_id: str = Form(...),

@@ -83,7 +83,7 @@ class AIPipeline:
             if SelectedFeature.AI_VIRTUAL_TRYON in selected_features:
                 tryon_service = get_virtual_tryon_service()
                 if tryon_service is not None:
-                    tasks["tryon"] = tryon_service.generate(bg_removed_url, num_samples=2)
+                    tasks["tryon"] = tryon_service.generate(bg_removed_url, num_samples=1)
                 else:
                     print(f"[{product_id}] Try-On skipped (service unavailable)")
 
@@ -93,14 +93,14 @@ class AIPipeline:
             if SelectedFeature.MANNEQUIN in selected_features:
                 mannequin_service = get_mannequin_service()
                 if mannequin_service is not None:
-                    tasks["mannequin"] = mannequin_service.generate_ghost_mannequin(bg_removed_url, num_samples=2)
+                    tasks["mannequin"] = mannequin_service.generate_ghost_mannequin(bg_removed_url, num_samples=1)
                 else:
                     print(f"[{product_id}] Mannequin skipped (service unavailable)")
 
             if SelectedFeature.MODEL in selected_features:
                 model_service = get_model_service()
                 if model_service is not None:
-                    tasks["model"] = model_service.generate_on_model(bg_removed_url, num_samples=2)
+                    tasks["model"] = model_service.generate_on_model(bg_removed_url, num_samples=1)
                 else:
                     print(f"[{product_id}] Model skipped (service unavailable)")
 
@@ -294,7 +294,7 @@ class AIPipeline:
                 if SelectedFeature.AI_VIRTUAL_TRYON in selected_features:
                     tryon_service = get_virtual_tryon_service()
                     if tryon_service is not None:
-                        tasks["tryon"] = tryon_service.generate(bg_removed_url, num_samples=2)
+                        tasks["tryon"] = tryon_service.generate(bg_removed_url, num_samples=1)
                     else:
                         print(f"[{product_id}:{image_index}] Try-On skipped (service unavailable)")
 
@@ -304,7 +304,7 @@ class AIPipeline:
                 if SelectedFeature.MANNEQUIN in selected_features:
                     mannequin_service = get_mannequin_service()
                     if mannequin_service is not None:
-                        tasks["mannequin"] = mannequin_service.generate_ghost_mannequin(bg_removed_url, num_samples=2)
+                        tasks["mannequin"] = mannequin_service.generate_ghost_mannequin(bg_removed_url, num_samples=1)
                     else:
                         print(f"[{product_id}:{image_index}] Mannequin skipped (service unavailable)")
 

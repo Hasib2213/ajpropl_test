@@ -40,7 +40,7 @@ class MannequinService:
     async def generate_ghost_mannequin(
         self,
         background_removed_url: str,
-        num_samples: int = 2,
+        num_samples: int = 1,
     ) -> List[bytes]:
         """
         Ghost Mannequin Effect।
@@ -87,8 +87,8 @@ class MannequinService:
         """
         result: List[bytes] = []
         
-        print("ℹ️ Ghost mannequin not yet supported via Gradio (IDM-VTON is for models only)")
-        print("📦 Returning original clothing image as fallback")
+        print(" Ghost mannequin not yet supported via Gradio (IDM-VTON is for models only)")
+        print("Returning original clothing image as fallback")
         
         original = await self._download(background_removed_url)
         if not original:
@@ -110,8 +110,8 @@ class MannequinService:
         Looks like real product photography on store mannequin.
         """
         if self.ai_provider == "HUGGINGFACE" and self.hf_token:
-            print("ℹ️ Visible mannequin not yet supported via Gradio (IDM-VTON is for models only)")
-            print("📦 Returning original clothing image as fallback")
+            print("Visible mannequin not yet supported via Gradio (IDM-VTON is for models only)")
+            print("Returning original clothing image as fallback")
             
             result: List[bytes] = []
             original = await self._download(background_removed_url)

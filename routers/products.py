@@ -25,134 +25,102 @@ ai_pipeline = AIPipeline()
 # Figma → "Generate" button - Upload image & select AI features
 # ─────────────────────────────────────────────────────────────────────────────
 #@router.post("/generate", response_model=ProductResponse)
-async def generate(
-    background_tasks: BackgroundTasks,
-    seller_id: str = Form(...),
-    selected_features: str = Form(...),     # JSON array string: ["background_removal","model"]
-    image: UploadFile = File(...),
-):
-    """
-    Figma → User image upload + features select → Generate button।
+# async def generate(
+#     background_tasks: BackgroundTasks,
+#     seller_id: str = Form(...),
+#     selected_features: str = Form(...),     # JSON array string: ["background_removal","model"]
+#     image: UploadFile = File(...),
+# ):
+#     """
+#     Figma → User image upload + features select → Generate button।
     
-    **Request:**
-    - `seller_id`: Unique seller identifier
-    - `selected_features`: JSON array of feature names
-    - `image`: Garment photo (JPG/PNG/WebP)
+#     **Request:**
+#     - `seller_id`: Unique seller identifier
+#     - `selected_features`: JSON array of feature names
+#     - `image`: Garment photo (JPG/PNG/WebP)
     
-    **Example:**
-    ```
-    POST /api/v1/generate
-    seller_id: "seller_123"
-    selected_features: '["physical_dimensions","background_removal","model"]'
-    image: <file>
-    ```
+#     **Example:**
+#     ```
+#     POST /api/v1/generate
+#     seller_id: "seller_123"
+#     selected_features: '["physical_dimensions","background_removal","model"]'
+#     image: <file>
+#     ```
     
-    **Response:** Returns product_id immediately — processing runs in background.
-    Poll `/api/v1/{id}/status` to check progress.
-    """
-    # Validate image
-    if image.content_type not in ("image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif", "image/tiff", "image/avif"):
-        raise HTTPException(400, f"Only JPG, PNG, WebP, GIF, HEIC, HEIF, TIFF, AVIF images allowed. Got: {image.content_type}")
+#     **Response:** Returns product_id immediately — processing runs in background.
+#     Poll `/api/v1/{id}/status` to check progress.
+#     """
+#     # Validate image
+#     if image.content_type not in ("image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif", "image/tiff", "image/avif"):
+#         raise HTTPException(400, f"Only JPG, PNG, WebP, GIF, HEIC, HEIF, TIFF, AVIF images allowed. Got: {image.content_type}")
 
-    # Parse selected features (supports JSON list, comma list, or "all")
-    try:
-        normalized = selected_features.strip()
-        if normalized.lower() in ("all", "*"):
-            feature_list_raw = ALLOWED_FEATURES
-        else:
-            try:
-                feature_list_raw = json.loads(normalized)
-            except json.JSONDecodeError:
-                feature_list_raw = [f.strip() for f in normalized.split(",") if f.strip()]
+#     # Parse selected features (supports JSON list, comma list, or "all")
+#     try:
+#         normalized = selected_features.strip()
+#         if normalized.lower() in ("all", "*"):
+#             feature_list_raw = ALLOWED_FEATURES
+#         else:
+#             try:
+#                 feature_list_raw = json.loads(normalized)
+#             except json.JSONDecodeError:
+#                 feature_list_raw = [f.strip() for f in normalized.split(",") if f.strip()]
 
-        # Keep order, drop duplicates, validate
-        seen = set()
-        feature_list = []
-        for f in feature_list_raw:
-            if f in ALLOWED_FEATURES and f not in seen:
-                feature_list.append(SelectedFeature(f))
-                seen.add(f)
-    except Exception:
-        raise HTTPException(400, f"Invalid features. Valid options: {ALLOWED_FEATURES}")
+#         # Keep order, drop duplicates, validate
+#         seen = set()
+#         feature_list = []
+#         for f in feature_list_raw:
+#             if f in ALLOWED_FEATURES and f not in seen:
+#                 feature_list.append(SelectedFeature(f))
+#                 seen.add(f)
+#     except Exception:
+#         raise HTTPException(400, f"Invalid features. Valid options: {ALLOWED_FEATURES}")
 
-    if not feature_list:
-        raise HTTPException(400, "At least one feature must be selected")
+#     if not feature_list:
+#         raise HTTPException(400, "At least one feature must be selected")
 
-    # Read image
-    image_bytes = await image.read()
+#     # Read image
+#     image_bytes = await image.read()
 
-    # Create product document in MongoDB
-    product_id = str(uuid.uuid4())
-    doc = {
-        "_id": product_id,
-        "seller_id": seller_id,
-        "status": ProcessingStatus.PENDING,
-        "selected_features": [f.value for f in feature_list],
-        "images": {},
-        "details": {},
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
-    }
-    await col_products().insert_one(doc)
+#     # Create product document in MongoDB
+#     product_id = str(uuid.uuid4())
+#     doc = {
+#         "_id": product_id,
+#         "seller_id": seller_id,
+#         "status": ProcessingStatus.PENDING,
+#         "selected_features": [f.value for f in feature_list],
+#         "images": {},
+#         "details": {},
+#         "created_at": datetime.utcnow(),
+#         "updated_at": datetime.utcnow(),
+#     }
+#     await col_products().insert_one(doc)
 
-    # Run AI pipeline in background
-    background_tasks.add_task(
-        ai_pipeline.run,
-        product_id,
-        image_bytes,
-        feature_list,
-    )
+#     # Run AI pipeline in background
+#     background_tasks.add_task(
+#         ai_pipeline.run,
+#         product_id,
+#         image_bytes,
+#         feature_list,
+#     )
 
-    return ProductResponse(
-        product_id=product_id,
-        status=ProcessingStatus.PENDING,
-        message="Processing started. Poll /status to track progress.",
-    )
+#     return ProductResponse(
+#         product_id=product_id,
+#         status=ProcessingStatus.PENDING,
+#         message="Processing started. Poll /status to track progress.",
+#     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # POST /api/v1/generate-batch
 # Multi-image upload with per-image feature selection
 # ─────────────────────────────────────────────────────────────────────────────
-@router.post("/generate-batch", response_model=ProductResponse)
+@router.post("/generate-batch", response_model=dict)
 async def generate_batch(
-    background_tasks: BackgroundTasks,
     seller_id: str = Form(..., description="Unique seller identifier"),
     features_json: str = Form(..., description='JSON array: [{"features":["bg_removal","model"]}, ...]'),
     images: List[UploadFile] = File(..., description="Multiple garment photos (JPG/PNG/WebP)")
 ):
-    """
-    Multi-image upload with per-image feature selection.
     
-    ⚠️ **Note for Swagger UI users:** 
-    Due to OpenAPI 3.0 limitations, Swagger UI may not properly render the multiple file upload field.
-    Please use one of these alternatives:
-    - **Postman** (recommended for testing)
-    - **HTML Form** (see test_multi_upload.html in project root)
-    - **cURL** command
-    - **JavaScript fetch/axios**
-    
-    **Request (multipart/form-data):**
-    - `seller_id`: Unique seller identifier
-    - `features_json`: JSON array where each object contains "features" for that image
-    - `images`: Multiple garment photos (JPG/PNG/WebP) - actual file uploads
-    
-    **Example:**
-    ```
-    POST /api/v1/generate-batch
-    Content-Type: multipart/form-data
-    
-    seller_id: "seller_123"
-    features_json: '[{"features": ["background_removal", "model"]}, {"features": ["physical_dimensions", "virtual_tryon"]}]'
-    images: <file1.jpg>
-    images: <file2.jpg>
-    images: <file3.jpg>
-    ```
-    
-    **Response:** Returns batch product_id immediately — processing runs in background.
-    Each image is processed independently with its selected features.
-    Generated SKUs format: SKU-000123456_1 (suffix depends on feature: 1=physical_dimensions, 2=background_removal, etc.)
-    """
     
     # ─── FILE INPUT VALIDATION ───
     # Validate image count
@@ -272,19 +240,27 @@ async def generate_batch(
     }
     await col_products().insert_one(doc)
     
-    # Run AI pipeline in background for each image
-    background_tasks.add_task(
-        ai_pipeline.run_batch,
+    # Run AI pipeline — WAIT for completion (synchronous)
+    await ai_pipeline.run_batch(
         product_id,
         image_bytes_list,
         images_batch_with_skus,
     )
     
-    return ProductResponse(
-        product_id=product_id,
-        status=ProcessingStatus.PENDING,
-        message=f"Batch processing started for {len(images)} images. Poll /status to track progress.",
-    )
+    # Fetch completed product from database
+    product = await col_products().find_one({"_id": product_id})
+    if not product:
+        raise HTTPException(500, "Product not found after processing")
+    
+    # Transform for response
+    product["id"] = product.pop("_id")
+    
+    return {
+        "product_id": product_id,
+        "status": product.get("status", ProcessingStatus.COMPLETED),
+        "message": f"Batch processing completed for {len(images)} images.",
+        "product": product,  # Return all product data
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

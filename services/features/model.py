@@ -48,7 +48,7 @@ class ModelService:
         self,
         clothing_image_url: str,
         garment_description: str = "fashion clothing",
-        num_samples: int = 2,
+        num_samples: int = 1,
         custom_model_url: Optional[str] = None,
     ) -> List[bytes]:
         """
@@ -90,7 +90,7 @@ class ModelService:
                 results.append(img_bytes)
 
             except Exception as e:
-                print(f"⚠️ Model generation pose failed: {e}, trying fallback...")
+                print(f"Model generation pose failed: {e}, trying fallback...")
                 # Fallback: SDXL text-to-image
                 fallback = await self._sdxl_fallback(clothing_image_url, garment_description)
                 if fallback:
@@ -108,16 +108,16 @@ class ModelService:
         # Use Gradio Client for IDM-VTON model generation
         for i in range(max(1, num_samples)):
             try:
-                print(f"🚀 Attempting model generation via Gradio Client (try {i+1}/{num_samples})...")
+                print(f"Attempting model generation via Gradio Client (try {i+1}/{num_samples})...")
                 img = await self._hf_gradio_vton(original, garment_description)
                 if img:
-                    print(f"✅ Model generation succeeded!")
+                    print(f"Model generation succeeded!")
                     results.append(img)
                 else:
-                    print(f"⚠️ Model generation returned None, using original")
+                    print(f"Model generation returned None, using original")
                     results.append(original)
             except Exception as e:
-                print(f"❌ Model generation attempt {i+1} failed: {str(e)[:150]}")
+                print(f"Model generation attempt {i+1} failed: {str(e)[:150]}")
                 results.append(original)
         
         return results if results else [original]
@@ -151,7 +151,7 @@ class ModelService:
             if urls:
                 return await self._download(str(urls[0]))
         except Exception as e:
-            print(f"❌ SDXL fallback also failed: {e}")
+            print(f"SDXL fallback also failed: {e}")
         return None
 
     async def _hf_image_to_image(self, image_url: str, prompt: str, negative_prompt: str = "") -> Optional[bytes]:
@@ -176,9 +176,9 @@ class ModelService:
                 output.save(buffer, format="PNG")
                 return buffer.getvalue()
 
-            print("⚠️ Hugging Face model generation returned unexpected output type")
+            print("Hugging Face model generation returned unexpected output type")
         except Exception as e:
-            print(f"⚠️ Hugging Face model generation error: {e}")
+            print(f"Hugging Face model generation error: {e}")
         return None
 
     async def _download(self, url: str) -> bytes:
@@ -242,7 +242,7 @@ class ModelService:
                     os.unlink(garment_path)
                     
         except Exception as e:
-            print(f"❌ Gradio Model VTON error: {str(e)[:200]}")
+            print(f"Gradio Model VTON error: {str(e)[:200]}")
         return None
 
     async def _hf_instruct_edit(self, image_url: str, image_bytes: bytes, instruction: str) -> Optional[bytes]:
@@ -268,19 +268,19 @@ class ModelService:
             )
 
             if isinstance(output, bytes):
-                print(f"✅ HF model generation succeeded (bytes)")
+                print(f"HF model generation succeeded (bytes)")
                 return output
             
             if hasattr(output, "save"):
                 buffer = io.BytesIO()
                 output.save(buffer, format="PNG")
                 result = buffer.getvalue()
-                print(f"✅ HF model generation succeeded (PIL, {len(result)} bytes)")
+                print(f"HF model generation succeeded (PIL, {len(result)} bytes)")
                 return result
             
-            print(f"⚠️ HF model generation unexpected output type: {type(output)}")
+            print(f"HF model generation unexpected output type: {type(output)}")
         except Exception as e:
-            print(f"❌ HF model generation error: {str(e)[:200]}")
+            print(f"HF model generation error: {str(e)[:200]}")
         return None
 
 

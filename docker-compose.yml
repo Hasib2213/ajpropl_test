@@ -1,0 +1,63 @@
+services:
+  # ──────────────────────────────────────────────────────────────────────────
+  # AJPROPL AI Application (Cloud MongoDB Atlas Only)
+  # No local MongoDB/Redis - uses cloud services
+  # ──────────────────────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      cache_from:
+        - ajpropl-ai:latest
+    image: ajpropl-ai:latest
+    container_name: ajpropl_app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # MongoDB Atlas (Cloud) - Stores metadata & image URLs
+      MONGODB_URL: ${MONGODB_URL}
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME}
+      
+      # AWS S3 Bucket - Stores actual images
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_REGION: ${S3_REGION}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      
+      # AI API Keys
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL}
+      REMOVEBG_API_KEY: ${REMOVEBG_API_KEY}
+      REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN}
+      HUGGINGFACE_API_TOKEN: ${HUGGINGFACE_API_TOKEN}
+      AI_PROVIDER: ${AI_PROVIDER}
+      
+      # App Settings
+      PYTHONUNBUFFERED: 1
+      PYTHONDONTWRITEBYTECODE: 1
+      DEBUG: ${DEBUG}
+    
+    networks:
+      - ajpropl_network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    stop_grace_period: 30s
+    stop_signal: SIGTERM
+
+networks:
+  ajpropl_network:
+    driver: bridge

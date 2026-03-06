@@ -1,30 +1,22 @@
 """
-SKU Generator - Generate unique SKUs for multi-image with feature-based suffixes
-================================================================================
+SKU Generator - Generate unique SKUs for multi-image with sequential feature suffixes
+===================================================================================
 
-For multi-image processing, each feature gets a unique SKU with feature suffix:
-- physical_dimensions → 000123456_1
-- background_removal → 000123456_2
-- ai_virtual_tryon → 000123456_3
-- image_diagram → 000123456_4
-- mannequin → 000123456_5
-- model → 000123456_6
+For multi-image processing, each feature gets a unique SKU with sequential suffix based on selection order:
+Image1 with features [background_remove, model, ai_virtual_tryon]:
+  - background_remove → 00012356_1
+  - model → 00012356_2
+  - ai_virtual_tryon → 00012356_3
+
+Image2 with features [model, physical_dimensions, ai_virtual_tryon]:
+  - model → 00234_1
+  - physical_dimensions → 00234_2
+  - ai_virtual_tryon → 00234_3
 """
 
 import uuid
 from typing import Dict, List
 from models.product import SelectedFeature
-
-
-# Feature to suffix mapping
-FEATURE_SUFFIX_MAP = {
-    SelectedFeature.PHYSICAL_DIMENSIONS.value: "1",
-    SelectedFeature.BACKGROUND_REMOVAL.value: "2",
-    SelectedFeature.AI_VIRTUAL_TRYON.value: "3",
-    SelectedFeature.IMAGE_DIAGRAM.value: "4",
-    SelectedFeature.MANNEQUIN.value: "5",
-    SelectedFeature.MODEL.value: "6",
-}
 
 
 def generate_base_sku(prefix: str = "SKU") -> str:
@@ -48,21 +40,22 @@ def generate_feature_skus(
     base_sku: str = None,
 ) -> Dict[str, str]:
     """
-    Generate SKUs for each feature with suffix.
+    Generate SKUs for each feature with sequential suffix based on selection order.
     
     Args:
-        selected_features: List of feature names (e.g., ["background_removal", "physical_dimensions"])
+        selected_features: List of feature names in order (e.g., ["background_removal", "model", "ai_virtual_tryon"])
         base_sku: Base SKU string. If None, generates new one.
     
     Returns:
-        Dict mapping feature -> sku (e.g., {"background_removal": "SKU-000123456_2", "physical_dimensions": "SKU-000123456_1"})
+        Dict mapping feature -> sku with sequential suffix (e.g., {"background_removal": "SKU-000123456_1", "model": "SKU-000123456_2", "ai_virtual_tryon": "SKU-000123456_3"})
     
     Example:
-        >>> skus = generate_feature_skus(["background_removal", "physical_dimensions"])
+        >>> skus = generate_feature_skus(["background_removal", "model", "ai_virtual_tryon"])
         >>> skus
         {
-            "physical_dimensions": "SKU-000123456_1",
-            "background_removal": "SKU-000123456_2"
+            "background_removal": "SKU-000123456_1",
+            "model": "SKU-000123456_2",
+            "ai_virtual_tryon": "SKU-000123456_3"
         }
     """
     if base_sku is None:
@@ -70,10 +63,9 @@ def generate_feature_skus(
     
     feature_skus = {}
     
-    for feature in selected_features:
-        # Get suffix for this feature
-        suffix = FEATURE_SUFFIX_MAP.get(feature, "9")
-        sku = f"{base_sku}_{suffix}"
+    # Assign sequential number to each feature based on order
+    for index, feature in enumerate(selected_features, start=1):
+        sku = f"{base_sku}_{index}"
         feature_skus[feature] = sku
     
     return feature_skus
@@ -98,9 +90,9 @@ def generate_skus_for_batch(
         ... ]
         >>> skus = generate_skus_for_batch(batch)
         >>> skus[0]["background_removal"]
-        "SKU-000123456_2"
+        "SKU-000123456_1"
         >>> skus[1]["ai_virtual_tryon"]
-        "SKU-000789abc_3"
+        "SKU-000789abc_2"
     """
     batch_skus = {}
     
@@ -119,14 +111,15 @@ def generate_skus_for_batch(
     return batch_skus
 
 
-def get_feature_suffix(feature: str) -> str:
+def generate_sku_for_feature(base_sku: str, feature_index: int) -> str:
     """
-    Get the suffix number for a feature.
+    Generate SKU for a specific feature with sequential index.
     
     Args:
-        feature: Feature name (e.g., "background_removal")
+        base_sku: Base SKU string
+        feature_index: Sequential index of the feature (1-based)
     
     Returns:
-        Suffix number as string
+        SKU string with sequential suffix (e.g., "SKU-000123456_1")
     """
-    return FEATURE_SUFFIX_MAP.get(feature, "9")
+    return f"{base_sku}_{feature_index}"

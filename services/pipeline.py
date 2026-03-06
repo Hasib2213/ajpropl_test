@@ -311,7 +311,7 @@ class AIPipeline:
                 if SelectedFeature.MODEL in selected_features:
                     model_service = get_model_service()
                     if model_service is not None:
-                        tasks["model"] = model_service.generate_on_model(bg_removed_url, num_samples=2)
+                        tasks["model"] = model_service.generate_on_model(bg_removed_url, num_samples=1)
                     else:
                         print(f"[{product_id}:{image_index}] Model skipped (service unavailable)")
 

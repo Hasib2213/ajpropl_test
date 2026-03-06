@@ -12,7 +12,7 @@ from routers.products import router as products_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await connect_db()
-    print(f"\n🚀 {settings.APP_NAME} v{settings.APP_VERSION} is running\n")
+    print(f"\n {settings.APP_NAME} v{settings.APP_VERSION} is running\n")
     yield
     await close_db()
 
@@ -22,24 +22,13 @@ app = FastAPI(
     description="""
 ## ResaleAI — AI-Powered Garment Processing
 
-Upload a garment photo → AI handles the rest.
-
-### 6 AI Features:
-| # | Feature | API Used |
-|---|---------|----------|
-| 1 | **Physical Dimensions** | Gemini Vision |
-| 2 | **Background Removal** | Remove.bg |
-| 3 | **AI Virtual Try-On** | Replicate (IDM-VTON) |
-| 4 | **Image Diagram** | Gemini Vision + Pillow |
-| 5 | **Mannequin** | Replicate (SDXL) |
-| 6 | **Model** | Replicate (IDM-VTON) |
-
 ### Auto-generated listing:
 - Product Title, Description
 - Product Details & Metafields
 - Tags, SKU, Variants
 - Storage & Automation info
 -features:physical_dimensions,background_removal,ai_virtual_tryon,image_diagram,mannequin,model
+
 -feature_json:[{"features": ["background_removal", "model"]}, {"features": ["physical_dimensions", "virtual_tryon"]}]
     """,
     version=settings.APP_VERSION,
@@ -97,4 +86,14 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    # Increased timeouts to support long-running AI processing requests
+    # timeout-keep-alive: Keep connections alive during long processing (default 5s)
+    # timeout-graceful-shutdown: Graceful shutdown timeout (default 15s)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        timeout_keep_alive=600,  # 10 minutes for processing
+        timeout_graceful_shutdown=30,
+    )

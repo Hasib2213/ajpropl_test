@@ -80,5 +80,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Graceful shutdown with signal handling (uvicorn handles SIGTERM)
 STOPSIGNAL SIGTERM
 
-# Run uvicorn with multiple workers for production
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--timeout-keep-alive", "5"]
+# Run uvicorn with multiple workers and explicit timeout settings for production
+#CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--timeout-keep-alive", "650", "--timeout-graceful-shutdown", "60"]
+CMD ["gunicorn", "-w", "2", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:8000", "--timeout", "300", "--keep-alive", "650"]

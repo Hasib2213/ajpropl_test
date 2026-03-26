@@ -114,7 +114,7 @@ ai_pipeline = AIPipeline()
 # POST /api/v1/generate-batch
 # Multi-image upload with per-image feature selection
 # ─────────────────────────────────────────────────────────────────────────────
-@router.post("/generate-batch", response_model=dict)
+@router.post("/generate", response_model=dict)
 async def generate_batch(
     seller_id: str = Form(..., description="Unique seller identifier"),
     features_json: str = Form(..., description='JSON array: [{"features":["bg_removal","model"]}, ...]'),

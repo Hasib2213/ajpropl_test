@@ -38,3 +38,4 @@ redis
 python-jose
 passlib[bcrypt]
 uuid
+gunicorn

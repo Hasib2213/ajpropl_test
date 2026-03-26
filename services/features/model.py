@@ -16,24 +16,27 @@ Models used:
 
 import os
 import io
-import replicate
 import httpx
 from typing import List, Optional
 from config.settings import settings
+from services.features.replicate_utils import (
+    InvalidReplicateInputError,
+    InvalidReplicateModelError,
+    run_replicate_with_retry,
+)
 
 
-IDM_VTON_MODEL = "cuuupid/idm-vton:906425dbca90663ff5427624839572cc56ea7d380343d13e2a4c4b09d7f0f23"
-SDXL_MODEL = "stability-ai/sdxl:39ed52f2146e2d37a7ee45e55ef3e0b73a9daf5dab9f96e1f6ab36a01f398c7b"
+IDM_VTON_MODEL = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
+SDXL_MODEL = "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc"
 # Hugging Face models for image generation
 HF_IMG2IMG_MODEL = "timbrooks/instruct-pix2pix"  # Instruction-based image editing
 HF_T2I_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"  # Text-to-image
 
 # Default model poses (diverse body types)
 DEFAULT_MODEL_POSES = [
-    # Neutral standing pose
-    "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/example/human/00008_00.jpg",
-    # Walking pose
-    "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/example/human/00034_00.jpg",
+    # Public full-body sample pose URLs.
+    "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg",
+    "https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg",
 ]
 
 
@@ -73,9 +76,9 @@ class ModelService:
 
         for pose_url in poses:
             try:
-                output = replicate.run(
+                output = await run_replicate_with_retry(
                     IDM_VTON_MODEL,
-                    input={
+                    {
                         "human_img": pose_url,
                         "garm_img": clothing_image_url,
                         "garment_des": garment_description,
@@ -89,6 +92,15 @@ class ModelService:
                 img_bytes = await self._download(str(output))
                 results.append(img_bytes)
 
+            except InvalidReplicateModelError as e:
+                print(f"Model generation model/version invalid: {e}")
+                print("Replicate model/version invalid; skipping model output")
+                return results
+            except InvalidReplicateInputError as e:
+                print(f"Model generation input invalid: {e}, trying fallback...")
+                fallback = await self._sdxl_fallback(clothing_image_url, garment_description)
+                if fallback:
+                    results.append(fallback)
             except Exception as e:
                 print(f"Model generation pose failed: {e}, trying fallback...")
                 # Fallback: SDXL text-to-image
@@ -131,9 +143,9 @@ class ModelService:
         IDM-VTON fail হলে SDXL img2img দিয়ে fallback।
         """
         try:
-            output = replicate.run(
-                "stability-ai/stable-diffusion-img2img:15a3689ee13b0d2616e98820eca31d4af4b51808f9a4031fffbc5b85b4a35a60",
-                input={
+            output = await run_replicate_with_retry(
+                "stability-ai/stable-diffusion-img2img:15a3689ee13b0d2616e98820eca31d4c3abcd36672df6afce5cb6feb1d66087d",
+                {
                     "image": clothing_url,
                     "prompt": (
                         f"beautiful fashion model wearing {garment_description}, "
@@ -150,6 +162,8 @@ class ModelService:
             urls = output if isinstance(output, list) else [output]
             if urls:
                 return await self._download(str(urls[0]))
+        except InvalidReplicateModelError as e:
+            print(f"SDXL fallback model/version invalid: {e}")
         except Exception as e:
             print(f"SDXL fallback also failed: {e}")
         return None
@@ -208,7 +222,7 @@ class ModelService:
                 garment_path = garment_file.name
             
             # Default human model image URL
-            human_url = "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/example/human/00008_00.jpg"
+            human_url = "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg"
             
             try:
                 # Initialize Gradio client

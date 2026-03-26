@@ -9,14 +9,18 @@ Multiple outputs = multiple image tabs in Figma (Image 1, 2, 3...)
 
 import os
 import io
-import replicate
 import httpx
 from typing import List, Optional
 from config.settings import settings
+from services.features.replicate_utils import (
+    InvalidReplicateInputError,
+    InvalidReplicateModelError,
+    run_replicate_with_retry,
+)
 
 
 # IDM-VTON — Best virtual try-on model on Replicate (2024-2025)
-IDM_VTON_MODEL = "cuuupid/idm-vton:906425dbca90663ff5427624839572cc56ea7d380343d13e2a4c4b09d7f0f23"
+IDM_VTON_MODEL = "cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985"
 
 # OOTDiffusion — Alternative (faster, slightly lower quality)
 OOTD_MODEL = "levihsu/ootdiffusion:8600197fd84c5b9f9b062a3ca8b63363b10734c7b4e2ec7c498f35a3e69d0f68"
@@ -64,13 +68,23 @@ class VirtualTryOnService:
             input_params["human_img"] = model_image_url
         else:
             # Use default model image (neutral pose)
-            input_params["human_img"] = (
-                "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/"
-                "example/human/00008_00.jpg"
-            )
+            input_params["human_img"] = "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg"
 
         # Run IDM-VTON on Replicate
-        output = replicate.run(IDM_VTON_MODEL, input=input_params)
+        try:
+            output = await run_replicate_with_retry(IDM_VTON_MODEL, input_params)
+        except InvalidReplicateModelError as e:
+            print(f"Virtual Try-On model/version invalid: {e}")
+            original = await self._download(clothing_image_url)
+            if not original:
+                return []
+            return [original for _ in range(max(1, num_samples))]
+        except InvalidReplicateInputError as e:
+            print(f"Virtual Try-On input invalid: {e}")
+            original = await self._download(clothing_image_url)
+            if not original:
+                return []
+            return [original for _ in range(max(1, num_samples))]
 
         # Download outputs
         result_bytes = []
@@ -141,9 +155,9 @@ class VirtualTryOnService:
         OOTDiffusion — Alternative try-on (faster)
         Use this if IDM-VTON is slow or expensive
         """
-        output = replicate.run(
+        output = await run_replicate_with_retry(
             OOTD_MODEL,
-            input={
+            {
                 "cloth_image": clothing_image_url,
                 "model_image": (
                     "https://huggingface.co/spaces/levihsu/OOTDiffusion/"
@@ -191,7 +205,7 @@ class VirtualTryOnService:
                 garment_path = garment_file.name
             
             # Default human model image URL
-            human_url = "https://huggingface.co/spaces/yisol/IDM-VTON/resolve/main/example/human/00008_00.jpg"
+            human_url = "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg"
             
             try:
                 # Initialize Gradio client

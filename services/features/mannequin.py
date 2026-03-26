@@ -13,17 +13,18 @@ How:
 
 import os
 import io
-import replicate
 import httpx
 from typing import List, Optional
+from PIL import Image, ImageDraw
 from config.settings import settings
+from services.features.replicate_utils import InvalidReplicateModelError, run_replicate_with_retry
 
 
 # Stable Diffusion XL for mannequin generation
-SDXL_MODEL = "stability-ai/sdxl:39ed52f2146e2d37a7ee45e55ef3e0b73a9daf5dab9f96e1f6ab36a01f398c7b"
+SDXL_MODEL = "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc"
 
 # Img2img for ghost mannequin effect
-IMG2IMG_MODEL = "stability-ai/stable-diffusion-img2img:15a3689ee13b0d2616e98820eca31d4af4b51808f9a4031fffbc5b85b4a35a60"
+IMG2IMG_MODEL = "stability-ai/stable-diffusion-img2img:15a3689ee13b0d2616e98820eca31d4c3abcd36672df6afce5cb6feb1d66087d"
 
 # Hugging Face models for image generation
 HF_IMG2IMG_MODEL = "timbrooks/instruct-pix2pix"  # Instruction-based image editing
@@ -55,29 +56,39 @@ class MannequinService:
         if self.ai_provider == "HUGGINGFACE" and self.hf_token:
             return await self._generate_hf_ghost(background_removed_url, num_samples)
 
-        output = replicate.run(
-            IMG2IMG_MODEL,
-            input={
-                "image": background_removed_url,
-                "prompt": (
-                    "professional ghost mannequin clothing photography, "
-                    "3D shaped garment, invisible mannequin effect, "
-                    "white background, studio lighting, fashion e-commerce, "
-                    "high quality, sharp details"
-                ),
-                "negative_prompt": (
-                    "visible mannequin, person, model, face, hands, "
-                    "flat lay, wrinkled, poor quality, blurry"
-                ),
-                "strength": 0.55,        # Low strength = preserve clothing details
-                "num_outputs": num_samples,
-                "guidance_scale": 8.0,
-                "scheduler": "DPMSolverMultistep",
-                "num_inference_steps": 30,
-            },
-        )
-
-        return await self._download_all(output, num_samples)
+        try:
+            output = await run_replicate_with_retry(
+                IMG2IMG_MODEL,
+                {
+                    "image": background_removed_url,
+                    "prompt": (
+                        "professional ghost mannequin clothing photography, "
+                        "3D shaped garment, invisible mannequin effect, "
+                        "white background, studio lighting, fashion e-commerce, "
+                        "high quality, sharp details"
+                    ),
+                    "negative_prompt": (
+                        "visible mannequin, person, model, face, hands, "
+                        "flat lay, wrinkled, poor quality, blurry"
+                    ),
+                    "strength": 0.55,
+                    "num_outputs": num_samples,
+                    "guidance_scale": 8.0,
+                    "scheduler": "DPMSolverMultistep",
+                    "num_inference_steps": 30,
+                },
+            )
+            return await self._download_all(output, num_samples)
+        except InvalidReplicateModelError as e:
+            print(f"Ghost mannequin model/version invalid: {e}")
+            original = await self._download(background_removed_url)
+            if not original:
+                return []
+            return [original for _ in range(max(1, num_samples))]
+        except Exception as e:
+            print(f"Ghost mannequin generation failed: {e}")
+            original = await self._download(background_removed_url)
+            return [original] if original else []
 
     async def _generate_hf_ghost(self, background_removed_url: str, num_samples: int) -> List[bytes]:
         """
@@ -104,11 +115,28 @@ class MannequinService:
         self,
         background_removed_url: str,
         num_samples: int = 2,
+        preserve_dress: bool = True,
     ) -> List[bytes]:
         """
-        Visible Mannequin — clothing on a physical mannequin。
+        Visible Mannequin — clothing on a physical mannequin।
         Looks like real product photography on store mannequin.
+        
+        Args:
+            background_removed_url: Dress image URL
+            num_samples: Number of variations
+            preserve_dress: If True, uses lower strength to keep dress unchanged (default True)
         """
+        if preserve_dress:
+            # Deterministic mannequin composition keeps dress pixels unchanged.
+            original = await self._download(background_removed_url)
+            if not original:
+                return []
+
+            composed = self._compose_on_plastic_mannequin(original)
+            if composed:
+                return [composed for _ in range(max(1, num_samples))]
+            return [original for _ in range(max(1, num_samples))]
+
         if self.ai_provider == "HUGGINGFACE" and self.hf_token:
             print("Visible mannequin not yet supported via Gradio (IDM-VTON is for models only)")
             print("Returning original clothing image as fallback")
@@ -124,26 +152,117 @@ class MannequinService:
             
             return result
 
-        output = replicate.run(
-            IMG2IMG_MODEL,
-            input={
-                "image": background_removed_url,
-                "prompt": (
-                    "fashion clothing on white plastic mannequin, "
-                    "product photography, studio lighting, white background, "
-                    "professional e-commerce photo, clean, sharp"
-                ),
-                "negative_prompt": (
-                    "human face, person, model, outdoor, wrinkled, blurry, low quality"
-                ),
-                "strength": 0.60,
-                "num_outputs": num_samples,
-                "guidance_scale": 7.5,
-                "num_inference_steps": 30,
-            },
+        try:
+            strength = 0.35
+            
+            output = await run_replicate_with_retry(
+                IMG2IMG_MODEL,
+                {
+                    "image": background_removed_url,
+                    "prompt": (
+                        "dress on white plastic mannequin stand, "
+                        "product photography white background, "
+                        "professional e-commerce, perfect draping, "
+                        "clean sharp details"
+                    ),
+                    "negative_prompt": (
+                        "color change, size change, altered fabric, distorted shape, "
+                        "human face, person, model, outdoor, wrinkled, blurry, "
+                        "low quality, modified dress, color distortion"
+                    ),
+                    "strength": strength,
+                    "num_outputs": num_samples,
+                    "guidance_scale": 7.5,
+                    "num_inference_steps": 25,
+                },
+            )
+            return await self._download_all(output, num_samples)
+        except InvalidReplicateModelError as e:
+            print(f"Visible mannequin model/version invalid: {e}")
+            original = await self._download(background_removed_url)
+            if not original:
+                return []
+            return [original for _ in range(max(1, num_samples))]
+        except Exception as e:
+            print(f"Visible mannequin generation failed: {e}")
+            original = await self._download(background_removed_url)
+            return [original] if original else []
+
+    def _compose_on_plastic_mannequin(self, dress_image_bytes: bytes) -> Optional[bytes]:
+        """Compose dress over a synthetic plastic mannequin without modifying the dress pixels."""
+        try:
+            dress = Image.open(io.BytesIO(dress_image_bytes)).convert("RGBA")
+            mannequin = self._render_mannequin_base(dress.width, dress.height)
+
+            # Layer order: mannequin behind, dress on top.
+            result = Image.alpha_composite(mannequin, dress)
+
+            buffer = io.BytesIO()
+            result.save(buffer, format="PNG")
+            return buffer.getvalue()
+        except Exception as e:
+            print(f"Mannequin composition failed: {e}")
+            return None
+
+    def _render_mannequin_base(self, width: int, height: int) -> Image.Image:
+        """Render a neutral white plastic mannequin + stand on white background."""
+        canvas = Image.new("RGBA", (width, height), (255, 255, 255, 255))
+        draw = ImageDraw.Draw(canvas)
+
+        cx = width // 2
+        light = (244, 244, 244, 255)
+        mid = (225, 225, 225, 255)
+        stand = (45, 50, 60, 255)
+
+        # Head + neck
+        head_w = int(width * 0.10)
+        head_h = int(height * 0.10)
+        head_y = int(height * 0.03)
+        draw.ellipse((cx - head_w // 2, head_y, cx + head_w // 2, head_y + head_h), fill=light)
+
+        neck_w = int(width * 0.05)
+        neck_h = int(height * 0.05)
+        neck_y = head_y + head_h - int(height * 0.005)
+        draw.rounded_rectangle(
+            (cx - neck_w // 2, neck_y, cx + neck_w // 2, neck_y + neck_h),
+            radius=max(1, int(width * 0.008)),
+            fill=mid,
         )
 
-        return await self._download_all(output, num_samples)
+        # Torso
+        shoulder_y = neck_y + neck_h
+        hip_y = int(height * 0.68)
+        shoulder_half = int(width * 0.17)
+        waist_half = int(width * 0.09)
+        hip_half = int(width * 0.13)
+        torso_points = [
+            (cx - shoulder_half, shoulder_y),
+            (cx + shoulder_half, shoulder_y),
+            (cx + waist_half, int(height * 0.45)),
+            (cx + hip_half, hip_y),
+            (cx - hip_half, hip_y),
+            (cx - waist_half, int(height * 0.45)),
+        ]
+        draw.polygon(torso_points, fill=light)
+
+        # Stand pole + base
+        pole_top = hip_y
+        pole_bottom = int(height * 0.93)
+        pole_w = max(2, int(width * 0.012))
+        draw.rounded_rectangle(
+            (cx - pole_w // 2, pole_top, cx + pole_w // 2, pole_bottom),
+            radius=max(1, pole_w // 2),
+            fill=stand,
+        )
+
+        foot_y = pole_bottom
+        leg_len = int(width * 0.13)
+        leg_rise = int(height * 0.06)
+        draw.line((cx, foot_y, cx - leg_len, foot_y + leg_rise), fill=stand, width=max(2, int(width * 0.01)))
+        draw.line((cx, foot_y, cx + leg_len, foot_y + leg_rise), fill=stand, width=max(2, int(width * 0.01)))
+        draw.line((cx, foot_y, cx, foot_y + leg_rise), fill=stand, width=max(2, int(width * 0.01)))
+
+        return canvas
 
     async def _hf_image_to_image(self, image_url: str, prompt: str, negative_prompt: str = "") -> Optional[bytes]:
         try:
@@ -185,6 +304,16 @@ class MannequinService:
             r.raise_for_status()
             return r.content
 
+    async def _download_all(self, output, num_samples: int) -> List[bytes]:
+        urls = output if isinstance(output, list) else [output]
+        result: List[bytes] = []
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            for url in urls[:num_samples]:
+                r = await client.get(str(url))
+                r.raise_for_status()
+                result.append(r.content)
+        return result
+
     async def _hf_instruct_edit(self, image_url: str, image_bytes: bytes, instruction: str) -> Optional[bytes]:
         """Use text-to-image generation for mannequin effects"""
         try:
@@ -222,14 +351,6 @@ class MannequinService:
         except Exception as e:
             print(f"❌ HF mannequin generation error: {str(e)[:200]}")
         return None
-        urls = output if isinstance(output, list) else [output]
-        result = []
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            for url in urls[:num_samples]:
-                r = await client.get(str(url))
-                r.raise_for_status()
-                result.append(r.content)
-        return result
 
 
 mannequin_service = MannequinService()

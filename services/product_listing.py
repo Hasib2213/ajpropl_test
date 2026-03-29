@@ -64,7 +64,7 @@ Return ONLY a JSON object with these exact fields:
 
 Rules:
 - product_title: max 60 chars, catchy and specific
-- description: 120-150 words, professional fashion copywriting
+- description: 50 words, professional fashion copywriting
 - category: use "Parent > Child" format
 - tags: 5-7 relevant fashion tags
 - Output ONLY valid JSON, no markdown"""

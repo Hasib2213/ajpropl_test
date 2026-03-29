@@ -25,6 +25,7 @@ opencv-python-headless
 # ── Replicate (Virtual Try-On / Mannequin / Model) ────────────────────────────
 replicate
 huggingface_hub
+gradio_client
 
 # ── Storage (Cloudflare R2) ───────────────────────────────────────────────────
 boto3
@@ -37,3 +38,4 @@ redis
 python-jose
 passlib[bcrypt]
 uuid
+gunicorn

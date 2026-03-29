@@ -1,19 +1,30 @@
 import uuid
+import os
 from datetime import datetime
 from config.database import db
+from utils.s3_storage import get_s3_storage
 
 
 class StorageService:
     """
-    Storage Service - MongoDB Only
-    
-    All files stored in: resale_ai.files collection
-    File references use: mongodb://file-id format
+    Storage Service
+
+    Preferred: Upload files to S3 and store URL in MongoDB products.
+    Fallback: Store binary in MongoDB files collection and return mongodb://file-id.
     """
+
+    def _s3_enabled(self) -> bool:
+        return all([
+            os.getenv("S3_ACCESS_KEY"),
+            os.getenv("S3_SECRET_KEY"),
+            os.getenv("S3_BUCKET_NAME"),
+            os.getenv("S3_ENDPOINT"),
+        ])
     
     async def upload(self, file_bytes: bytes, folder: str, ext: str = "png", content_type: str = "image/png") -> str:
         """
-        Store file in MongoDB and return reference URL
+        Upload file to S3 (preferred) and return URL.
+        If S3 is not configured, store in MongoDB and return mongodb:// reference URL.
         
         Args:
             file_bytes: Raw image/file bytes
@@ -22,8 +33,18 @@ class StorageService:
             content_type: MIME type (image/jpeg, image/png, etc)
         
         Returns:
-            Reference URL: mongodb://file-id
+            URL string to save in MongoDB products
         """
+        if self._s3_enabled():
+            filename = f"{uuid.uuid4().hex}.{ext}"
+            s3_storage = get_s3_storage()
+            return s3_storage.upload_image(
+                image_bytes=file_bytes,
+                filename=filename,
+                folder=folder,
+            )
+
+        # MongoDB fallback
         file_id = str(uuid.uuid4())
         database = db()
         files_collection = database["files"]
@@ -38,7 +59,7 @@ class StorageService:
             "uploaded_at": datetime.utcnow(),
         }
         await files_collection.insert_one(file_doc)
-        
+
         return f"mongodb://{file_id}"
     
     async def get_file(self, file_id: str) -> bytes:

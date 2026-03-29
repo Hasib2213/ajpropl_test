@@ -40,7 +40,7 @@ class PhysicalDimensions(BaseModel):
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Image Outputs
+# Image Outputs (Single Image)
 # ────────────────────────────────────────────────────────────────────────────
 class ImageOutputs(BaseModel):
     original_url: Optional[str] = None
@@ -49,6 +49,27 @@ class ImageOutputs(BaseModel):
     virtual_tryon_urls: Optional[List[str]] = []
     mannequin_urls: Optional[List[str]] = []
     model_urls: Optional[List[str]] = []
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Per-Image Processing Data (Multi-Image Support)
+# ────────────────────────────────────────────────────────────────────────────
+class ImageProcessingData(BaseModel):
+    """Data for each image in a multi-image batch"""
+    image_index: int
+    selected_features: List[str]
+    original_url: Optional[str] = None
+    background_removed_url: Optional[str] = None
+    image_diagram_url: Optional[str] = None
+    virtual_tryon_urls: Optional[List[str]] = []
+    mannequin_urls: Optional[List[str]] = []
+    model_urls: Optional[List[str]] = []
+    dimensions: Optional[PhysicalDimensions] = None
+    generated_skus: Optional[Dict[str, str]] = {}  # feature -> sku mapping
+    status: ProcessingStatus = ProcessingStatus.PENDING
+    error: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -89,8 +110,13 @@ class ProductInDB(BaseModel):
     id: str = Field(alias="_id")
     seller_id: str
     status: ProcessingStatus
-    selected_features: List[str]
+    # Single image (legacy support)
+    selected_features: Optional[List[str]] = None
     images: Optional[ImageOutputs] = ImageOutputs()
+    # Multi-image support
+    is_multi_image: bool = False
+    images_batch: Optional[List[ImageProcessingData]] = []
+    # Common fields
     details: Optional[ProductDetails] = ProductDetails()
     variants: Optional[List[VariantData]] = []
     storage: Optional[StorageAutomation] = StorageAutomation()

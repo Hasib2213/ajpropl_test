@@ -17,6 +17,7 @@ import httpx
 from typing import List, Optional
 from PIL import Image, ImageDraw
 from config.settings import settings
+from services.features.nano_banana import NanoBananaProClient
 from services.features.replicate_utils import InvalidReplicateModelError, run_replicate_with_retry
 
 
@@ -37,6 +38,7 @@ class MannequinService:
         os.environ["REPLICATE_API_TOKEN"] = settings.REPLICATE_API_TOKEN
         self.ai_provider = (settings.AI_PROVIDER or "REPLICATE").upper()
         self.hf_token = settings.HUGGINGFACE_API_TOKEN
+        self.nano_client = NanoBananaProClient()
 
     async def generate_ghost_mannequin(
         self,
@@ -53,6 +55,15 @@ class MannequinService:
         
         Returns: List of mannequin image bytes
         """
+        if self.ai_provider == "NANO_BANANA_PRO" and self.nano_client.enabled:
+            generated = await self._generate_nano_mannequin(
+                background_removed_url,
+                num_samples,
+                mode="ghost_mannequin",
+            )
+            if generated:
+                return generated
+
         if self.ai_provider == "HUGGINGFACE" and self.hf_token:
             return await self._generate_hf_ghost(background_removed_url, num_samples)
 
@@ -118,14 +129,26 @@ class MannequinService:
         preserve_dress: bool = True,
     ) -> List[bytes]:
         """
-        Visible Mannequin — clothing on a physical mannequin।
+        Visible Plastic Mannequin — clothing on a physical mannequin stand.
         Looks like real product photography on store mannequin.
         
         Args:
-            background_removed_url: Dress image URL
+            background_removed_url: Dress image URL (background removed)
             num_samples: Number of variations
-            preserve_dress: If True, uses lower strength to keep dress unchanged (default True)
+            preserve_dress: If True, uses PIL composition (fast, deterministic) and
+                          keeps garment pixels unchanged.
+                          If False, uses AI generation for higher variation.
         """
+        if self.ai_provider == "NANO_BANANA_PRO" and self.nano_client.enabled:
+            generated = await self._generate_nano_mannequin(
+                background_removed_url,
+                num_samples,
+                mode="mannequin",
+            )
+            if generated:
+                return generated
+            print("Nano Banana mannequin returned no image; falling back to deterministic composition")
+
         if preserve_dress:
             # Deterministic mannequin composition keeps dress pixels unchanged.
             original = await self._download(background_removed_url)
@@ -138,22 +161,21 @@ class MannequinService:
             return [original for _ in range(max(1, num_samples))]
 
         if self.ai_provider == "HUGGINGFACE" and self.hf_token:
-            print("Visible mannequin not yet supported via Gradio (IDM-VTON is for models only)")
-            print("Returning original clothing image as fallback")
+            print("⚠️ HF fallback: Visible mannequin not yet supported via Gradio")
+            print("↪️ Returning PIL mannequin composition")
             
             result: List[bytes] = []
             original = await self._download(background_removed_url)
             if not original:
                 return []
             
-            # Return original image for each sample
-            for i in range(max(1, num_samples)):
-                result.append(original)
-            
-            return result
+            composed = self._compose_on_plastic_mannequin(original)
+            if composed:
+                return [composed for _ in range(max(1, num_samples))]
+            return [original for _ in range(max(1, num_samples))]
 
         try:
-            strength = 0.35
+            strength = 0.40
             
             output = await run_replicate_with_retry(
                 IMG2IMG_MODEL,
@@ -161,14 +183,17 @@ class MannequinService:
                     "image": background_removed_url,
                     "prompt": (
                         "dress on white plastic mannequin stand, "
+                        "full body shot head to toe, "
                         "product photography white background, "
-                        "professional e-commerce, perfect draping, "
-                        "clean sharp details"
+                        "professional e-commerce fashion, "
+                        "perfect draping, clean sharp details, "
+                        "realistic plastic mannequin, clear fabric texture"
                     ),
                     "negative_prompt": (
-                        "color change, size change, altered fabric, distorted shape, "
-                        "human face, person, model, outdoor, wrinkled, blurry, "
-                        "low quality, modified dress, color distortion"
+                        "color change, fabric distortion, size change, "
+                        "altered dress shape, human model, person, face, "
+                        "outdoor background, wrinkled, blurry, low quality, "
+                        "modified dress, fabric texture change, watermark"
                     ),
                     "strength": strength,
                     "num_outputs": num_samples,
@@ -178,15 +203,21 @@ class MannequinService:
             )
             return await self._download_all(output, num_samples)
         except InvalidReplicateModelError as e:
-            print(f"Visible mannequin model/version invalid: {e}")
+            print(f"❌ Mannequin model invalid: {e}")
+            print("↪️ Falling back to PIL composition")
             original = await self._download(background_removed_url)
             if not original:
                 return []
-            return [original for _ in range(max(1, num_samples))]
+            composed = self._compose_on_plastic_mannequin(original)
+            return [composed] if composed else [original]
         except Exception as e:
-            print(f"Visible mannequin generation failed: {e}")
+            print(f"❌ Mannequin generation failed: {e}")
+            print("↪️ Falling back to PIL composition")
             original = await self._download(background_removed_url)
-            return [original] if original else []
+            if not original:
+                return []
+            composed = self._compose_on_plastic_mannequin(original)
+            return [composed] if composed else [original]
 
     def _compose_on_plastic_mannequin(self, dress_image_bytes: bytes) -> Optional[bytes]:
         """Compose dress over a synthetic plastic mannequin without modifying the dress pixels."""
@@ -313,6 +344,34 @@ class MannequinService:
                 r.raise_for_status()
                 result.append(r.content)
         return result
+
+    async def _generate_nano_mannequin(
+        self,
+        background_removed_url: str,
+        num_samples: int,
+        mode: str,
+    ) -> List[bytes]:
+        results: List[bytes] = []
+
+        for idx in range(max(1, num_samples)):
+            try:
+                generated = await self.nano_client.generate(
+                    mode=mode,
+                    clothing_image_url=background_removed_url,
+                    model_image_url=None,
+                    garment_description="fashion mannequin presentation",
+                    garment_category="dresses",
+                    seed=300 + idx,
+                )
+                if generated:
+                    results.append(generated)
+                    continue
+            except Exception as e:
+                print(f"Nano Banana mannequin generation failed (sample {idx + 1}): {e}")
+
+        if results:
+            return results
+        return []
 
     async def _hf_instruct_edit(self, image_url: str, image_bytes: bytes, instruction: str) -> Optional[bytes]:
         """Use text-to-image generation for mannequin effects"""

@@ -11,7 +11,7 @@ Flow:
 import asyncio
 import uuid
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from config.database import col_products
 from models.product import (
@@ -74,6 +74,24 @@ class AIPipeline:
                 except Exception:
                     bg_removed_url = original_url
 
+            # Precompute listing when model selection depends on garment gender/type.
+            precomputed_listing: Optional[Dict] = None
+            inferred_gender: Optional[str] = None
+            garment_description = "fashion clothing item"
+            garment_category = "dresses"
+            if self._needs_gender_aware_model(selected_features):
+                try:
+                    precomputed_listing = await product_listing_service.generate(image_bytes)
+                    inferred_gender = self._extract_target_gender(precomputed_listing)
+                    garment_description = self._extract_garment_description(precomputed_listing)
+                    garment_category = self._extract_tryon_category(precomputed_listing)
+                    print(
+                        f"[{product_id}] Precomputed listing for model selection "
+                        f"(gender={inferred_gender or 'unknown'}, category={garment_category})"
+                    )
+                except Exception as e:
+                    print(f"[{product_id}] Listing precompute failed, using neutral model poses: {e}")
+
             # ── Step 3: Run remaining features in PARALLEL ────────────────
             tasks = {}
 
@@ -83,7 +101,13 @@ class AIPipeline:
             if SelectedFeature.AI_VIRTUAL_TRYON in selected_features:
                 tryon_service = get_virtual_tryon_service()
                 if tryon_service is not None:
-                    tasks["tryon"] = tryon_service.generate(bg_removed_url, num_samples=1)
+                    tasks["tryon"] = tryon_service.generate(
+                        bg_removed_url,
+                        num_samples=1,
+                        target_gender=inferred_gender,
+                        garment_description=garment_description,
+                        garment_category=garment_category,
+                    )
                 else:
                     print(f"[{product_id}] Try-On skipped (service unavailable)")
 
@@ -104,17 +128,26 @@ class AIPipeline:
             if SelectedFeature.MODEL in selected_features:
                 model_service = get_model_service()
                 if model_service is not None:
-                    tasks["model"] = model_service.generate_on_model(bg_removed_url, num_samples=1)
+                    tasks["model"] = model_service.generate_on_model(
+                        bg_removed_url,
+                        garment_description=garment_description,
+                        num_samples=1,
+                        target_gender=inferred_gender,
+                        garment_category=garment_category,
+                    )
                 else:
                     print(f"[{product_id}] Model skipped (service unavailable)")
 
             # Always generate product listing
-            tasks["listing"] = product_listing_service.generate(image_bytes)
+            if precomputed_listing is None:
+                tasks["listing"] = product_listing_service.generate(image_bytes)
 
             # Run all in parallel
             print(f"[{product_id}] Running {len(tasks)} tasks in parallel...")
             results = await asyncio.gather(*tasks.values(), return_exceptions=True)
             result_map = dict(zip(tasks.keys(), results))
+            if precomputed_listing is not None:
+                result_map["listing"] = precomputed_listing
 
             # ── Step 4: Process results & save to MongoDB ─────────────────
             update_data: Dict = {}
@@ -289,6 +322,27 @@ class AIPipeline:
                     except Exception:
                         bg_removed_url = original_url
 
+                # Precompute listing when model selection depends on garment gender/type.
+                precomputed_listing: Optional[Dict] = None
+                inferred_gender: Optional[str] = None
+                garment_description = "fashion clothing item"
+                garment_category = "dresses"
+                if self._needs_gender_aware_model(selected_features):
+                    try:
+                        precomputed_listing = await product_listing_service.generate(image_bytes)
+                        inferred_gender = self._extract_target_gender(precomputed_listing)
+                        garment_description = self._extract_garment_description(precomputed_listing)
+                        garment_category = self._extract_tryon_category(precomputed_listing)
+                        print(
+                            f"[{product_id}:{image_index}] Precomputed listing for model selection "
+                            f"(gender={inferred_gender or 'unknown'}, category={garment_category})"
+                        )
+                    except Exception as e:
+                        print(
+                            f"[{product_id}:{image_index}] Listing precompute failed, "
+                            f"using neutral model poses: {e}"
+                        )
+
                 # ── Step 3: Run remaining features in PARALLEL ────────────────
                 tasks = {}
 
@@ -298,7 +352,13 @@ class AIPipeline:
                 if SelectedFeature.AI_VIRTUAL_TRYON in selected_features:
                     tryon_service = get_virtual_tryon_service()
                     if tryon_service is not None:
-                        tasks["tryon"] = tryon_service.generate(bg_removed_url, num_samples=1)
+                        tasks["tryon"] = tryon_service.generate(
+                            bg_removed_url,
+                            num_samples=1,
+                            target_gender=inferred_gender,
+                            garment_description=garment_description,
+                            garment_category=garment_category,
+                        )
                     else:
                         print(f"[{product_id}:{image_index}] Try-On skipped (service unavailable)")
 
@@ -319,17 +379,26 @@ class AIPipeline:
                 if SelectedFeature.MODEL in selected_features:
                     model_service = get_model_service()
                     if model_service is not None:
-                        tasks["model"] = model_service.generate_on_model(bg_removed_url, num_samples=1)
+                        tasks["model"] = model_service.generate_on_model(
+                            bg_removed_url,
+                            garment_description=garment_description,
+                            num_samples=1,
+                            target_gender=inferred_gender,
+                            garment_category=garment_category,
+                        )
                     else:
                         print(f"[{product_id}:{image_index}] Model skipped (service unavailable)")
 
                 # Always generate product listing
-                tasks["listing"] = product_listing_service.generate(image_bytes)
+                if precomputed_listing is None:
+                    tasks["listing"] = product_listing_service.generate(image_bytes)
 
                 # Run all in parallel
                 print(f"[{product_id}:{image_index}] Running {len(tasks)} tasks in parallel...")
                 results = await asyncio.gather(*tasks.values(), return_exceptions=True)
                 result_map = dict(zip(tasks.keys(), results))
+                if precomputed_listing is not None:
+                    result_map["listing"] = precomputed_listing
 
                 # ── Step 4: Process results & save to MongoDB ─────────────────
                 update_data: Dict = {}
@@ -446,6 +515,76 @@ class AIPipeline:
             )
             print(f"[{product_id}] Batch Pipeline FAILED: {e}")
             raise
+
+    def _needs_gender_aware_model(self, selected_features: List[SelectedFeature]) -> bool:
+        return (
+            SelectedFeature.AI_VIRTUAL_TRYON in selected_features
+            or SelectedFeature.MODEL in selected_features
+        )
+
+    def _extract_target_gender(self, listing: Optional[Dict]) -> Optional[str]:
+        if not isinstance(listing, dict):
+            return None
+
+        pd = listing.get("product_details", {})
+        if not isinstance(pd, dict):
+            pd = {}
+
+        raw_gender = str(pd.get("gender") or "").strip().lower()
+        title = str(listing.get("product_title") or "").strip().lower()
+        category = str(pd.get("category") or "").strip().lower()
+        combined = f"{raw_gender} {title} {category}"
+
+        male_terms = ["male", "man", "men", "mens", "boy", "boys"]
+        female_terms = ["female", "woman", "women", "womens", "girl", "girls", "lady", "ladies"]
+
+        if any(term in combined for term in male_terms):
+            return "male"
+        if any(term in combined for term in female_terms):
+            return "female"
+        return None
+
+    def _extract_garment_description(self, listing: Optional[Dict]) -> str:
+        if not isinstance(listing, dict):
+            return "fashion clothing item"
+
+        title = str(listing.get("product_title") or "").strip()
+        variant_data = listing.get("variant_data", {})
+        if not isinstance(variant_data, dict):
+            variant_data = {}
+        feature = str(variant_data.get("feature") or "").strip()
+
+        parts = [p for p in [title, feature] if p]
+        return ", ".join(parts) if parts else "fashion clothing item"
+
+    def _extract_tryon_category(self, listing: Optional[Dict]) -> str:
+        if not isinstance(listing, dict):
+            return "dresses"
+
+        pd = listing.get("product_details", {})
+        vd = listing.get("variant_data", {})
+        if not isinstance(pd, dict):
+            pd = {}
+        if not isinstance(vd, dict):
+            vd = {}
+
+        category = str(pd.get("category") or "").strip().lower()
+        dress_type = str(pd.get("dress_type") or "").strip().lower()
+        feature = str(vd.get("feature") or "").strip().lower()
+        title = str(listing.get("product_title") or "").strip().lower()
+        combined = f"{category} {dress_type} {feature} {title}"
+
+        lower_terms = ["pant", "trouser", "jeans", "skirt", "short", "bottom", "lower"]
+        upper_terms = ["shirt", "t-shirt", "tee", "top", "blouse", "jacket", "hoodie", "upper"]
+        dress_terms = ["dress", "gown", "kurti", "abaya", "one piece", "overall"]
+
+        if any(term in combined for term in dress_terms):
+            return "dresses"
+        if any(term in combined for term in lower_terms):
+            return "lower_body"
+        if any(term in combined for term in upper_terms):
+            return "upper_body"
+        return "dresses"
 
     async def _run_diagram(self, image_bytes: bytes, product_id: str) -> str:
         """Image diagram run করে URL return করে (aggressively compressed)"""

@@ -19,6 +19,11 @@ import io
 import httpx
 from typing import List, Optional
 from config.settings import settings
+from services.features.nano_banana import (
+    NanoBananaProClient,
+    get_gendered_model_pools,
+    parse_model_urls,
+)
 from services.features.replicate_utils import (
     InvalidReplicateInputError,
     InvalidReplicateModelError,
@@ -33,11 +38,18 @@ HF_IMG2IMG_MODEL = "timbrooks/instruct-pix2pix"  # Instruction-based image editi
 HF_T2I_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"  # Text-to-image
 
 # Default model poses (diverse body types)
-DEFAULT_MODEL_POSES = [
+FEMALE_MODEL_POSES = [
     # Public full-body sample pose URLs.
     "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg",
     "https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg",
 ]
+
+MALE_MODEL_POSES = [
+    "https://images.pexels.com/photos/1680172/pexels-photo-1680172.jpeg",
+    "https://images.pexels.com/photos/936229/pexels-photo-936229.jpeg",
+]
+
+DEFAULT_MODEL_POSES = FEMALE_MODEL_POSES + MALE_MODEL_POSES
 
 
 class ModelService:
@@ -46,6 +58,11 @@ class ModelService:
         os.environ["REPLICATE_API_TOKEN"] = settings.REPLICATE_API_TOKEN
         self.ai_provider = (settings.AI_PROVIDER or "REPLICATE").upper()
         self.hf_token = settings.HUGGINGFACE_API_TOKEN
+        self.nano_client = NanoBananaProClient()
+        pools = get_gendered_model_pools(FEMALE_MODEL_POSES, MALE_MODEL_POSES)
+        self.female_model_poses = pools["female"]
+        self.male_model_poses = pools["male"]
+        self.default_model_poses = self.female_model_poses + self.male_model_poses
 
     async def generate_on_model(
         self,
@@ -53,6 +70,8 @@ class ModelService:
         garment_description: str = "fashion clothing",
         num_samples: int = 1,
         custom_model_url: Optional[str] = None,
+        target_gender: Optional[str] = None,
+        garment_category: str = "dresses",
     ) -> List[bytes]:
         """
         Clothing image → Realistic model wearing the clothing。
@@ -65,14 +84,28 @@ class ModelService:
         
         Returns: List of model image bytes
         """
+        sample_count = max(1, num_samples)
+        poses = self._resolve_model_poses(sample_count, target_gender, custom_model_url)
+
+        if self.ai_provider == "NANO_BANANA_PRO" and self.nano_client.enabled:
+            nano_poses = self._resolve_nano_model_poses(sample_count, target_gender, custom_model_url)
+            return await self._generate_nano_banana_on_model(
+                clothing_image_url,
+                garment_description,
+                garment_category,
+                sample_count,
+                nano_poses,
+            )
+
         if self.ai_provider == "HUGGINGFACE" and self.hf_token:
-            return await self._generate_hf_on_model(clothing_image_url, garment_description, num_samples)
+            return await self._generate_hf_on_model(
+                clothing_image_url,
+                garment_description,
+                sample_count,
+                poses,
+            )
 
         results = []
-
-        # Generate with multiple model poses
-        poses = [custom_model_url] if custom_model_url else DEFAULT_MODEL_POSES
-        poses = poses[:num_samples]
 
         for pose_url in poses:
             try:
@@ -82,8 +115,9 @@ class ModelService:
                         "human_img": pose_url,
                         "garm_img": clothing_image_url,
                         "garment_des": garment_description,
+                        "category": garment_category,
                         "is_checked": True,
-                        "is_checked_crop": False,
+                        "is_checked_crop": True,
                         "denoise_steps": 30,
                         "seed": -1,     # Random seed for variation
                     },
@@ -110,7 +144,13 @@ class ModelService:
 
         return results
 
-    async def _generate_hf_on_model(self, clothing_image_url: str, garment_description: str, num_samples: int) -> List[bytes]:
+    async def _generate_hf_on_model(
+        self,
+        clothing_image_url: str,
+        garment_description: str,
+        num_samples: int,
+        pose_urls: List[str],
+    ) -> List[bytes]:
         results: List[bytes] = []
         
         original = await self._download(clothing_image_url)
@@ -121,7 +161,8 @@ class ModelService:
         for i in range(max(1, num_samples)):
             try:
                 print(f"Attempting model generation via Gradio Client (try {i+1}/{num_samples})...")
-                img = await self._hf_gradio_vton(original, garment_description)
+                human_url = pose_urls[i % len(pose_urls)] if pose_urls else DEFAULT_MODEL_POSES[0]
+                img = await self._hf_gradio_vton(original, garment_description, human_url)
                 if img:
                     print(f"Model generation succeeded!")
                     results.append(img)
@@ -208,7 +249,104 @@ class ModelService:
             r.raise_for_status()
             return r.content
 
-    async def _hf_gradio_vton(self, garment_bytes: bytes, garment_description: str) -> Optional[bytes]:
+    def _resolve_model_poses(
+        self,
+        num_samples: int,
+        target_gender: Optional[str],
+        custom_model_url: Optional[str],
+    ) -> List[str]:
+        sample_count = max(1, num_samples)
+
+        if custom_model_url:
+            return [custom_model_url for _ in range(sample_count)]
+
+        gender = (target_gender or "").strip().lower()
+        if gender in {"male", "man", "men", "mens", "boy", "boys"}:
+            pool = self.male_model_poses
+        elif gender in {"female", "woman", "women", "womens", "girl", "girls", "lady", "ladies"}:
+            pool = self.female_model_poses
+        else:
+            pool = self.default_model_poses or DEFAULT_MODEL_POSES
+
+        if not pool:
+            pool = self.default_model_poses or DEFAULT_MODEL_POSES
+
+        return [pool[i % len(pool)] for i in range(sample_count)]
+
+    def _resolve_nano_model_poses(
+        self,
+        num_samples: int,
+        target_gender: Optional[str],
+        custom_model_url: Optional[str],
+    ) -> List[str]:
+        """For Nano Banana, only use explicitly provided model references."""
+        sample_count = max(1, num_samples)
+
+        if custom_model_url:
+            return [custom_model_url for _ in range(sample_count)]
+
+        female_urls = parse_model_urls(settings.NANO_BANANA_FEMALE_MODEL_URLS)
+        male_urls = parse_model_urls(settings.NANO_BANANA_MALE_MODEL_URLS)
+
+        gender = (target_gender or "").strip().lower()
+        if gender in {"male", "man", "men", "mens", "boy", "boys"}:
+            pool = male_urls
+        elif gender in {"female", "woman", "women", "womens", "girl", "girls", "lady", "ladies"}:
+            pool = female_urls
+        else:
+            pool = female_urls + male_urls
+
+        if not pool:
+            return []
+
+        return [pool[i % len(pool)] for i in range(sample_count)]
+
+    async def _generate_nano_banana_on_model(
+        self,
+        clothing_image_url: str,
+        garment_description: str,
+        garment_category: str,
+        num_samples: int,
+        pose_urls: List[str],
+    ) -> List[bytes]:
+        results: List[bytes] = []
+        original: Optional[bytes] = None
+
+        for idx in range(max(1, num_samples)):
+            pose_url = pose_urls[idx % len(pose_urls)] if pose_urls else None
+            try:
+                generated = await self.nano_client.generate(
+                    mode="model",
+                    clothing_image_url=clothing_image_url,
+                    model_image_url=pose_url,
+                    garment_description=garment_description,
+                    garment_category=garment_category,
+                    seed=101 + idx,
+                )
+                if generated:
+                    results.append(generated)
+                    continue
+            except Exception as e:
+                print(f"Nano Banana model generation failed (sample {idx + 1}): {e}")
+
+            if original is None:
+                original = await self._download(clothing_image_url)
+            if original:
+                results.append(original)
+
+        if results:
+            return results
+
+        if original is None:
+            original = await self._download(clothing_image_url)
+        return [original] if original else []
+
+    async def _hf_gradio_vton(
+        self,
+        garment_bytes: bytes,
+        garment_description: str,
+        human_url: str,
+    ) -> Optional[bytes]:
         """Use IDM-VTON via Gradio Client for model generation"""
         try:
             from gradio_client import Client, handle_file
@@ -220,9 +358,6 @@ class ModelService:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as garment_file:
                 garment_file.write(garment_bytes)
                 garment_path = garment_file.name
-            
-            # Default human model image URL
-            human_url = "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg"
             
             try:
                 # Initialize Gradio client
@@ -236,8 +371,9 @@ class ModelService:
                         dict={"background": human_url, "layers": [], "composite": None},
                         garm_img=handle_file(garment_path),
                         garment_des=garment_description,
+                        category="dresses",
                         is_checked=True,
-                        is_checked_crop=False,
+                        is_checked_crop=True,
                         denoise_steps=30,
                         seed=42,
                         api_name="/tryon"
